@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Uncomment to run AnythingLLM locally (Phase 3)
+  # anythingllm:
+  #   image: mintplexlabs/anythingllm
+  #   ports:
+  #     - "3001:3001"
+  #   volumes:
+  #     - ./anythingllm_storage:/app/server/storage
+  #   restart: unless-stopped
