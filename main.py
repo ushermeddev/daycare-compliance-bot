@@ -51,3 +51,10 @@ async def webhook(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "托嬰合規助理 v1.0"}
+
+
+# ── Entry point (used by Railway via Procfile) ────────────────────────────────
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
