@@ -1,7 +1,8 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from supabase import create_client, Client
+from pypinyin import lazy_pinyin, Style
 from models import RecordType
 
 supabase: Client = create_client(
@@ -44,12 +45,59 @@ def get_all_active_babies() -> list[dict]:
     return result.data or []
 
 
+def _to_pinyin(text: str) -> str:
+    """Convert Chinese text to tone-free pinyin for phonetic matching."""
+    return "".join(lazy_pinyin(text, style=Style.NORMAL))
+
+
 def find_baby_by_name(name: str) -> Optional[dict]:
-    """Fuzzy match: checks if the given name appears in nickname or full name."""
-    for baby in get_all_active_babies():
-        if name in (baby.get("nickname") or "") or name in (baby.get("name") or ""):
+    """
+    Match baby by name in priority order:
+    1. Exact substring match on nickname or full name
+    2. Match on any alias in the aliases array
+    3. Phonetic (pinyin) match — handles homophones from voice transcription
+    Returns (baby_dict, match_type) where match_type is 'exact', 'alias', or 'phonetic'.
+    For backward compat, still returns just the dict (match_type stored as _match_type attr).
+    """
+    babies = get_all_active_babies()
+    name_pinyin = _to_pinyin(name)
+
+    phonetic_candidate = None
+
+    for baby in babies:
+        nickname = baby.get("nickname") or ""
+        full_name = baby.get("name") or ""
+        aliases = baby.get("aliases") or []
+
+        # 1. Exact match
+        if name in nickname or name in full_name:
+            baby["_match_type"] = "exact"
             return baby
-    return None
+
+        # 2. Alias match
+        if any(name in alias or alias in name for alias in aliases):
+            baby["_match_type"] = "alias"
+            return baby
+
+        # 3. Phonetic match (keep first candidate)
+        if phonetic_candidate is None:
+            for candidate in [nickname, full_name] + aliases:
+                if candidate and _to_pinyin(candidate) == name_pinyin:
+                    phonetic_candidate = baby
+                    phonetic_candidate["_match_type"] = "phonetic"
+                    break
+
+    return phonetic_candidate  # None if no match at all
+
+
+def add_alias(baby_id: str, alias: str) -> dict:
+    """Append an alias to a baby's aliases array."""
+    baby = supabase.table("babies").select("aliases").eq("id", baby_id).execute()
+    current = (baby.data[0].get("aliases") or []) if baby.data else []
+    if alias not in current:
+        current.append(alias)
+    result = supabase.table("babies").update({"aliases": current}).eq("id", baby_id).execute()
+    return result.data[0]
 
 
 # ── Records ────────────────────────────────────────────────────────────────────

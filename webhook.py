@@ -22,7 +22,7 @@ from database import (
     get_or_create_staff, find_baby_by_name, save_record,
     get_last_record, get_all_last_records_for_center,
     get_compliance_rules, add_baby, deactivate_baby, list_active_babies,
-    get_today_record_counts,
+    get_today_record_counts, add_alias,
 )
 
 _config = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""))
@@ -206,6 +206,19 @@ def _handle_admin_command(message: str) -> str | None:
             return f"✅ {nickname} 已標記為離托，後續不再出現於紀錄與待辦清單。"
         return f"⚠️ 找不到寶寶「{nickname}」，請確認暱稱是否正確。"
 
+    # ── 新增別名 ──────────────────────────────────────────────────────────────
+    if msg.startswith("新增別名"):
+        parts = msg[len("新增別名"):].strip().split()
+        if len(parts) < 2:
+            return "格式：新增別名 小明 明明\n（第一個是原本名字，第二個是要新增的別名）"
+        original, alias = parts[0], parts[1]
+        baby = find_baby_by_name(original)
+        if not baby:
+            return f"⚠️ 找不到寶寶「{original}」，請確認名字是否正確。"
+        add_alias(baby["id"], alias)
+        display = baby.get("nickname") or baby.get("name")
+        return f"✅ 已為「{display}」新增別名「{alias}」\n之後語音說「{alias}」也會自動辨識。"
+
     # ── 今日紀錄 ──────────────────────────────────────────────────────────────
     if msg in ("今日紀錄", "今天紀錄", "今日紀錄摘要", "今天有記錄嗎"):
         return _build_daily_summary()
@@ -261,13 +274,18 @@ async def _handle_report(
     # Resolve baby
     baby_id = None
     baby_display = None
+    phonetic_note = ""
     if extracted.baby_name:
         baby = find_baby_by_name(extracted.baby_name)
         if baby:
             baby_id = baby["id"]
             baby_display = baby.get("nickname") or baby.get("name")
+            if baby.get("_match_type") == "phonetic" and extracted.baby_name != baby_display:
+                phonetic_note = f"\n💡 「{extracted.baby_name}」→ 自動辨識為「{baby_display}」（同音字）"
         else:
-            return f"⚠️ 找不到嬰兒「{extracted.baby_name}」，請確認名字是否正確。"
+            babies = list_active_babies()
+            names = "、".join(b.get("nickname") or b.get("name") for b in babies) if babies else "（尚無在托寶寶）"
+            return f"⚠️ 找不到嬰兒「{extracted.baby_name}」\n目前在托：{names}"
 
     # Build data payload per record type
     data: dict = {}
@@ -438,7 +456,7 @@ async def _handle_report(
 
     label = _record_label(extracted.record_type)
     detail = "\n".join(l for l in summary_lines if l)
-    return f"✅ {label}已紀錄\n{detail}"
+    return f"✅ {label}已紀錄\n{detail}{phonetic_note}"
 
 
 # ── QUERY handler ──────────────────────────────────────────────────────────────
