@@ -70,6 +70,11 @@ async def handle_line_event(event):
     if isinstance(event.message, TextMessageContent):
         message = event.message.text.strip()
 
+        # 我的ID — needs user_id so handled before generic admin commands
+        if message.strip().lower() in ("我的id", "myid", "my id"):
+            await _reply(reply_token, f"你的 LINE User ID：\n{user_id}\n\n請將此 ID 設定為 Railway 的 ADMIN_LINE_GROUP_ID 變數，即可接收逾時警示推播。")
+            return
+
         # Admin commands (prefix-based, no AI needed)
         admin_reply = _handle_admin_command(message)
         if admin_reply is not None:
@@ -227,6 +232,10 @@ def _handle_admin_command(message: str) -> str | None:
         add_alias(baby["id"], alias)
         display = baby.get("nickname") or baby.get("name")
         return f"✅ 已為「{display}」新增別名「{alias}」\n之後語音說「{alias}」也會自動辨識。"
+
+    # ── 我的ID ────────────────────────────────────────────────────────────────
+    if msg in ("我的id", "我的ID", "myid", "my id"):
+        return None  # handled separately in main handler (needs user_id)
 
     # ── 今日紀錄 ──────────────────────────────────────────────────────────────
     if msg in ("今日紀錄", "今天紀錄", "今日紀錄摘要", "今天有記錄嗎"):
