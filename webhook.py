@@ -15,7 +15,7 @@ from linebot.v3.messaging import (
     ShowLoadingAnimationRequest,
 )
 
-from router import classify_and_extract, transcribe_and_route, classify_image
+from router import classify_and_extract, transcribe_and_route, classify_image, transcribe_audio
 from media import download_content
 from models import Intent, RecordType, QueryType, ExtractedReport, ExtractedQuery
 from database import (
@@ -83,7 +83,16 @@ async def handle_line_event(event):
         await _show_loading(user_id, seconds=20)
         try:
             audio_bytes = await download_content(event.message.id)
-            extracted = transcribe_and_route(audio_bytes)
+            transcript = transcribe_audio(audio_bytes)
+            if not transcript:
+                await _reply(reply_token, "⚠️ 語音辨識失敗，請改用文字輸入。")
+                return
+            # Check admin commands first (新增寶寶, 離托, 今日紀錄, etc.)
+            admin_reply = _handle_admin_command(transcript)
+            if admin_reply is not None:
+                await _reply(reply_token, admin_reply)
+                return
+            extracted = classify_and_extract(transcript)
         except Exception as e:
             await _reply(reply_token, f"⚠️ 語音辨識失敗，請改用文字輸入。\n（{e}）")
             return

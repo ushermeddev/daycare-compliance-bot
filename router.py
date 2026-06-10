@@ -179,41 +179,36 @@ _IMAGE_PROMPT = """\
 """
 
 
-def transcribe_and_route(audio_bytes: bytes) -> "ExtractedReport | ExtractedQuery":
-    """
-    Phase 2: Audio pipeline.
-    1. Send audio bytes to Gemini → get Mandarin transcript text.
-    2. Feed transcript through the standard classify_and_extract().
-    """
+def transcribe_audio(audio_bytes: bytes) -> str:
+    """Transcribe audio bytes to text only, without routing."""
     b64 = base64.b64encode(audio_bytes).decode("utf-8")
     response = _model.generate_content([
         {"inline_data": {"mime_type": "audio/mp4", "data": b64}},
         _TRANSCRIBE_PROMPT,
     ])
     transcript = response.text.strip()
-    if not transcript:
-        return ExtractedQuery(intent=Intent.UNKNOWN, query_type=QueryType.SUMMARY)
-
-    # Strip prompt leakage: Gemini sometimes echoes system prompt text into the transcript.
-    # Keep only the text BEFORE any known prompt phrase appears.
     _PROMPT_LEAK_MARKERS = [
-        "你是台灣托嬰中心",
-        "語音助理",
-        "請將以下音頻",
-        "只輸出轉錄文字",
+        "轉錄任務", "你是台灣托嬰中心", "語音助理", "請將以下音頻", "只輸出轉錄文字",
     ]
     for marker in _PROMPT_LEAK_MARKERS:
         idx = transcript.find(marker)
         if idx > 0:
             transcript = transcript[:idx].strip()
         elif idx == 0:
-            # Entire output is prompt text — discard
             transcript = ""
             break
+    return transcript
 
+
+def transcribe_and_route(audio_bytes: bytes) -> "ExtractedReport | ExtractedQuery":
+    """
+    Phase 2: Audio pipeline.
+    1. Send audio bytes to Gemini → get Mandarin transcript text.
+    2. Feed transcript through the standard classify_and_extract().
+    """
+    transcript = transcribe_audio(audio_bytes)
     if not transcript:
         return ExtractedQuery(intent=Intent.UNKNOWN, query_type=QueryType.SUMMARY)
-
     return classify_and_extract(transcript)
 
 
