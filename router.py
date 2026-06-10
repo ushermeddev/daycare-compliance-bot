@@ -144,9 +144,8 @@ def classify_and_extract(message: str) -> ExtractedReport | ExtractedQuery:
 # ── Phase 2: Multimodal ────────────────────────────────────────────────────────
 
 _TRANSCRIBE_PROMPT = """\
-你是台灣托嬰中心保育員的語音助理。
-請將以下音頻中的台灣繁體中文語音，完整轉錄為文字。
-只輸出轉錄文字，不加任何說明或標點修飾。
+轉錄任務：請將音頻中說的話逐字轉錄為繁體中文。
+規則：只輸出說話者說的文字內容，不加任何說明、標點修飾或額外文字。
 """
 
 _IMAGE_PROMPT = """\
@@ -194,6 +193,27 @@ def transcribe_and_route(audio_bytes: bytes) -> "ExtractedReport | ExtractedQuer
     transcript = response.text.strip()
     if not transcript:
         return ExtractedQuery(intent=Intent.UNKNOWN, query_type=QueryType.SUMMARY)
+
+    # Strip prompt leakage: Gemini sometimes echoes system prompt text into the transcript.
+    # Keep only the text BEFORE any known prompt phrase appears.
+    _PROMPT_LEAK_MARKERS = [
+        "你是台灣托嬰中心",
+        "語音助理",
+        "請將以下音頻",
+        "只輸出轉錄文字",
+    ]
+    for marker in _PROMPT_LEAK_MARKERS:
+        idx = transcript.find(marker)
+        if idx > 0:
+            transcript = transcript[:idx].strip()
+        elif idx == 0:
+            # Entire output is prompt text — discard
+            transcript = ""
+            break
+
+    if not transcript:
+        return ExtractedQuery(intent=Intent.UNKNOWN, query_type=QueryType.SUMMARY)
+
     return classify_and_extract(transcript)
 
 
