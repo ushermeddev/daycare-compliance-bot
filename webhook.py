@@ -79,9 +79,10 @@ async def handle_line_event(event):
 
         # ── 活動模式指令（需要 user_id，在此處理）─────────────────────────────
         # 活動主題：{主題}  →  進入活動模式，等待照片
-        if message.startswith("活動主題：") or message.startswith("活動主題:"):
-            sep = "：" if "：" in message else ":"
-            theme = message.split(sep, 1)[1].strip()
+        if message.startswith("活動主題"):
+            # Accept: 活動主題：xxx  /  活動主題:xxx  /  活動主題 xxx
+            rest = message[len("活動主題"):].lstrip("：: ")
+            theme = rest.strip()
             if not theme:
                 await _reply(reply_token, "請輸入活動主題，例如：\n活動主題：感官探索 — 沙池")
                 return
