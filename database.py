@@ -221,6 +221,54 @@ def get_today_record_counts() -> list[dict]:
     return result.data or []
 
 
+# ── User sessions (activity mode, equipment mode, etc.) ───────────────────────
+
+def set_user_session(
+    user_id: str,
+    session_type: str,
+    payload: dict,
+    ttl_minutes: int = 15,
+) -> None:
+    """
+    Upsert a session for a LINE user.
+    Overwrites any existing session for that user.
+    """
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+    ).isoformat()
+    supabase.table("user_sessions").upsert({
+        "user_id": user_id,
+        "session_type": session_type,
+        "payload": payload,
+        "expires_at": expires_at,
+    }).execute()
+
+
+def get_user_session(user_id: str) -> Optional[dict]:
+    """
+    Return the active session for a user, or None if expired / not found.
+    """
+    result = (
+        supabase.table("user_sessions")
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        return None
+    row = result.data[0]
+    # Check expiry
+    expires_at = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > expires_at:
+        clear_user_session(user_id)
+        return None
+    return row
+
+
+def clear_user_session(user_id: str) -> None:
+    supabase.table("user_sessions").delete().eq("user_id", user_id).execute()
+
+
 # ── Alerts ─────────────────────────────────────────────────────────────────────
 
 def log_alert(baby_id: Optional[str], record_type: str):

@@ -23,7 +23,9 @@ from database import (
     get_last_record, get_all_last_records_for_center,
     get_compliance_rules, add_baby, deactivate_baby, list_active_babies,
     get_today_record_counts, add_alias,
+    set_user_session, get_user_session, clear_user_session,
 )
+from activity_reporter import describe_activity
 
 _config = Configuration(access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""))
 
@@ -75,6 +77,30 @@ async def handle_line_event(event):
             await _reply(reply_token, f"你的 LINE User ID：\n{user_id}\n\n請將此 ID 設定為 Railway 的 ADMIN_LINE_GROUP_ID 變數，即可接收逾時警示推播。")
             return
 
+        # ── 活動模式指令（需要 user_id，在此處理）─────────────────────────────
+        # 活動主題：{主題}  →  進入活動模式，等待照片
+        if message.startswith("活動主題：") or message.startswith("活動主題:"):
+            sep = "：" if "：" in message else ":"
+            theme = message.split(sep, 1)[1].strip()
+            if not theme:
+                await _reply(reply_token, "請輸入活動主題，例如：\n活動主題：感官探索 — 沙池")
+                return
+            set_user_session(user_id, "activity_pending", {"theme": theme})
+            await _reply(reply_token,
+                f"📸 活動模式開啟！\n主題：{theme}\n\n請傳送活動照片，我會生成家長說明文字。\n輸入「取消活動」可退出此模式。"
+            )
+            return
+
+        # 取消活動  →  清除 session
+        if message.strip() in ("取消活動", "退出活動", "結束活動"):
+            session = get_user_session(user_id)
+            if session and session["session_type"] == "activity_pending":
+                clear_user_session(user_id)
+                await _reply(reply_token, "✅ 活動模式已關閉。")
+            else:
+                await _reply(reply_token, "目前沒有開啟的活動模式。")
+            return
+
         # Admin commands (prefix-based, no AI needed)
         admin_reply = _handle_admin_command(message)
         if admin_reply is not None:
@@ -104,9 +130,24 @@ async def handle_line_event(event):
 
     elif isinstance(event.message, ImageMessageContent):
         # Show typing indicator (FREE, does not consume reply token)
-        await _show_loading(user_id, seconds=20)
+        await _show_loading(user_id, seconds=25)
         try:
             image_bytes = await download_content(event.message.id)
+
+            # ── 活動模式：照片 → 家長說明 ─────────────────────────────────
+            session = get_user_session(user_id)
+            if session and session["session_type"] == "activity_pending":
+                theme = session["payload"].get("theme", "（未命名活動）")
+                # Extend session TTL on each photo (stay in activity mode)
+                set_user_session(user_id, "activity_pending", session["payload"])
+                description = describe_activity(image_bytes, theme)
+                await _reply(reply_token,
+                    f"📝 活動說明（主題：{theme}）\n\n{description}\n\n"
+                    "繼續傳照片可生成更多說明，或輸入「取消活動」結束。"
+                )
+                return
+
+            # ── 一般模式：照片辨識（體溫計、冰箱等）──────────────────────
             extracted = classify_image(image_bytes)
             # Attach LINE message_id so image is traceable after analysis
             extracted._line_message_id = event.message.id
@@ -262,6 +303,9 @@ def _handle_admin_command(message: str) -> str | None:
             "• B室玩具消毒完畢\n"
             "• 冷藏 4 度 冷凍 -19 度\n"
             "• 午餐留了食物樣品\n\n"
+            "【活動紀錄 📸】\n"
+            "• 活動主題：感官探索 — 沙池\n"
+            "  （輸入後傳照片，AI 生成家長說明）\n\n"
             "【查詢】\n"
             "• 今日紀錄\n"
             "• 今天有哪些逾時\n"
